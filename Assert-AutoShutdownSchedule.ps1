@@ -363,8 +363,9 @@ try
 
     # Get resource groups that are tagged for automatic shutdown of resources
 	$taggedResourceGroups = @(Get-AzureRmResourceGroup | where {$_.Tags.Count -gt 0 -and $_.Tags.Name -contains "AutoShutdownSchedule"})
+    $OverrideGroups = @(Get-AzureRmResourceGroup | where {$_.Tags.Count -gt 0 -and $_.Tags.Name -contains "Override"})
     $taggedResourceGroupNames = @($taggedResourceGroups | select -ExpandProperty ResourceGroupName)
-    Write-Output "Found [$($taggedResourceGroups.Count)] schedule-tagged resource groups in subscription"	
+    Write-Output "Found [$($taggedResourceGroups.Count)] schedule-tagged resource groups in subscription with [$($OverrideGroups.Count)] overrides"	
 
     # For each VM, determine
     #  - Is it directly tagged for shutdown or member of a tagged resource group
@@ -380,14 +381,25 @@ try
         {
             # VM has direct tag (possible for resource manager deployment model VMs). Prefer this tag schedule.
             $schedule = ($vm.Tags | where Name -eq "AutoShutdownSchedule")["Value"]
+            if($vm.Tags.Name -contains "Override"){
+                $oSchedule = ($vm.Tags | where Name -eq "Override")["Value"]
+                Write-Output "[$($vm.Name)]: Found direct VM schedule tag with value: $schedule"
+                Write-Output "[$($vm.Name)]: Found direct VM override tag with value: $oSchedule"
+            }
+            else {
             Write-Output "[$($vm.Name)]: Found direct VM schedule tag with value: $schedule"
+            }
         }
         elseif($taggedResourceGroupNames -contains $vm.ResourceGroupName)
         {
             # VM belongs to a tagged resource group. Use the group tag
             $parentGroup = $taggedResourceGroups | where ResourceGroupName -eq $vm.ResourceGroupName
             $schedule = ($parentGroup.Tags | where Name -eq "AutoShutdownSchedule")["Value"]
+            $oSchedule = ($parentGroup.Tags | where Name -eq "Override")["Value"]
             Write-Output "[$($vm.Name)]: Found parent resource group schedule tag with value: $schedule"
+            if($oSchedule -neq $null){
+                Write-Output "[$($vm.Name)]: Found parent resource group override tag with value: $oSchedule"
+            }
         }
         else
         {
@@ -405,10 +417,12 @@ try
 
         # Parse the ranges in the Tag value. Expects a string of comma-separated time ranges, or a single time range
 		$timeRangeList = @($schedule -split "," | foreach {$_.Trim()})
-	    
+	    $oTimeRangeList = @($oSchedule -split "," | foreach {$_.Trim()})
         # Check each range against the current time to see if any schedule is matched
 		$scheduleMatched = $false
         $matchedSchedule = $null
+        $oScheduleMatched = $false
+        $oMatchedSchedule = $null
 		foreach($entry in $timeRangeList)
 		{
 		    if((CheckScheduleEntry -TimeRange $entry) -eq $true)
@@ -418,9 +432,18 @@ try
 		        break
 		    }
 		}
+        foreach($entry in $oTimeRangeList)
+		{
+		    if((CheckScheduleEntry -TimeRange $entry) -eq $true)
+		    {
+		        $oScheduleMatched = $true
+                $oMatchedSchedule = $entry
+		        break
+		    }
+		}
 
         # Enforce desired state for group resources based on result. 
-		if($scheduleMatched)
+		if($scheduleMatched -and -not $oScheduleMatched)
 		{
             # Schedule is matched. Shut down the VM if it is running. 
 		    Write-Output "[$($vm.Name)]: Current time [$currentTime] falls within the scheduled shutdown range [$matchedSchedule]"
