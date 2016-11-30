@@ -397,7 +397,7 @@ try
             $schedule = ($parentGroup.Tags | where Name -eq "AutoShutdownSchedule")["Value"]
             $oSchedule = ($parentGroup.Tags | where Name -eq "Override")["Value"]
             Write-Output "[$($vm.Name)]: Found parent resource group schedule tag with value: $schedule"
-            if($oSchedule -neq $null){
+            if($oSchedule -ne $null){
                 Write-Output "[$($vm.Name)]: Found parent resource group override tag with value: $oSchedule"
             }
         }
@@ -432,18 +432,24 @@ try
 		        break
 		    }
 		}
-        foreach($entry in $oTimeRangeList)
-		{
-		    if((CheckScheduleEntry -TimeRange $entry) -eq $true)
-		    {
-		        $oScheduleMatched = $true
-                $oMatchedSchedule = $entry
-		        break
-		    }
-		}
+        if($oTimeRangeList -ne $null){
+            foreach($entry in $oTimeRangeList)
+            {
+                if((CheckScheduleEntry -TimeRange $entry) -eq $true)
+                {
+                    $oScheduleMatched = $true
+                    $oMatchedSchedule = $entry
+                    break
+                }
+            }
+        }
 
-        # Enforce desired state for group resources based on result. 
-		if($scheduleMatched -and -not $oScheduleMatched)
+        # Enforce desired state for group resources based on result.
+        if ($oScheduleMatched) {
+             Write-Output "[$($vm.Name)]: Current time [$currentTime] falls within the scheduled overtime range [$oMatchedSchedule]."
+             Write-Output "No action will be taken"
+        } 
+		elseif($scheduleMatched)
 		{
             # Schedule is matched. Shut down the VM if it is running. 
 		    Write-Output "[$($vm.Name)]: Current time [$currentTime] falls within the scheduled shutdown range [$matchedSchedule]"
