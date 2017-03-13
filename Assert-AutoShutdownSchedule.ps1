@@ -263,7 +263,29 @@ function AssertResourceManagerVirtualMachinePowerState
         Write-Output "[$($VirtualMachine.Name)]: Current power state [$currentStatus] is correct."
     }
 }
-
+function TestAutoRestart([string]$tagValue) {
+    try{
+        Write-Host "Testing AutoRestart Tag with value [$tagValue]"
+     $caseInsenseDiff = [string]::Compare($tagValue, "yes", $True)
+     if($caseInsenseDiff -eq 0){
+         return $true;
+     }
+     $caseInsenseDiff = [string]::Compare($tagValue, "no", $True)
+     if($caseInsenseDiff -eq 0){
+         return $false;
+     }
+     else{
+         if((CheckScheduleEntry -TimeRange $tagValue) -eq $true){
+             return $true
+         }
+     }
+     return $false
+    }
+    catch {
+        Write-Host "`aWARNING: Exception encountered while parsing auto restart. Details: $($_.Exception.Message). Check the syntax of entry, e.g. 'Yes','No','<StartTime> -> <EndTime>', or days/dates like 'Sunday' and 'December 25'"   
+	    return $false
+    }
+}
 # Main runbook content
 try
 {
@@ -375,7 +397,8 @@ try
     foreach($vm in $resourceManagerVMList)
     {
         $schedule = $null
-
+        $oSchedule = $null
+        $autoRestart = $null
         # Check for direct tag or group-inherited tag
         if($vm.ResourceType -eq "Microsoft.Compute/virtualMachines" -and $vm.Tags -and $vm.Tags.Name -contains "AutoShutdownSchedule")
         {
@@ -389,6 +412,11 @@ try
             else {
             Write-Output "[$($vm.Name)]: Found direct VM schedule tag with value: $schedule"
             }
+            Write-Output "Testing for AutoRestart"
+            if($vm.Tags.Name -contains "AutoRestart"){
+                $autoRestart = ($vm.Tags | where Name -eq "AutoRestart")["Value"]
+                Write-Output "[$($vm.Name)]: Found autoRestart tag with value: $autoRestart"
+            }
         }
         elseif($taggedResourceGroupNames -contains $vm.ResourceGroupName)
         {
@@ -396,9 +424,14 @@ try
             $parentGroup = $taggedResourceGroups | where ResourceGroupName -eq $vm.ResourceGroupName
             $schedule = ($parentGroup.Tags | where Name -eq "AutoShutdownSchedule")["Value"]
             $oSchedule = ($parentGroup.Tags | where Name -eq "Override")["Value"]
+            Write-Output "testing for AutoRestart in groups"
+            $autoRestart = ($parentGroup.Tags | where Name -eq "AutoRestart")["Value"]
             Write-Output "[$($vm.Name)]: Found parent resource group schedule tag with value: $schedule"
             if($oSchedule -ne $null){
                 Write-Output "[$($vm.Name)]: Found parent resource group override tag with value: $oSchedule"
+            }
+            if($autoRestart -ne $null){
+                Write-Output "[$($vm.Name)]: Found parent resource group AutoRestart tag with value: $autoRestart"
             }
         }
         else
@@ -459,7 +492,20 @@ try
 		{
             # Schedule not matched. Start VM if stopped.
 		    Write-Output "[$($vm.Name)]: Current time falls outside of all scheduled shutdown ranges."
-		    AssertVirtualMachinePowerState -VirtualMachine $vm -DesiredState "Started" -ResourceManagerVMList $resourceManagerVMList -ClassicVMList $classicVMList -Simulate $Simulate
+            $startIt = $false
+            if($autoRestart -ne $null){
+                 
+                $aR = TestAutoRestart -tagValue $autoRestart
+                Write-Output "aR value = $aR"
+                Write-Output "AutoRestart is not null: $autoRestart Result of TestAutoRestart: $aR" 
+                if (($aR)){
+                $startIt = $true
+                Write-Output "[$($vm.Name)] contains a tagRestart tag preventing the restart of this VM."
+                }
+            }
+            if ($startIt){
+                AssertVirtualMachinePowerState -VirtualMachine $vm -DesiredState "Started" -ResourceManagerVMList $resourceManagerVMList -ClassicVMList $classicVMList -Simulate $Simulate
+            }
 		}	    
     }
 
