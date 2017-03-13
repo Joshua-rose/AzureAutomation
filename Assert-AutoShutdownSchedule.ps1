@@ -424,7 +424,7 @@ try
             $parentGroup = $taggedResourceGroups | where ResourceGroupName -eq $vm.ResourceGroupName
             $schedule = ($parentGroup.Tags | where Name -eq "AutoShutdownSchedule")["Value"]
             $oSchedule = ($parentGroup.Tags | where Name -eq "Override")["Value"]
-            Write-Output "testing for AutoRestart in groups"
+            # Write-Output "testing for AutoRestart in groups"
             $autoRestart = ($parentGroup.Tags | where Name -eq "AutoRestart")["Value"]
             Write-Output "[$($vm.Name)]: Found parent resource group schedule tag with value: $schedule"
             if($oSchedule -ne $null){
@@ -496,11 +496,11 @@ try
             if($autoRestart -ne $null){
                  
                 $aR = TestAutoRestart -tagValue $autoRestart
-                Write-Output "aR value = $aR"
-                Write-Output "AutoRestart is not null: $autoRestart Result of TestAutoRestart: $aR" 
+                # Write-Output "aR value = $aR"
+                # Write-Output "AutoRestart is not null: $autoRestart Result of TestAutoRestart: $aR" 
                 if (($aR)){
                 $startIt = $true
-                Write-Output "[$($vm.Name)] contains a tagRestart tag preventing the restart of this VM."
+                Write-Output "[$($vm.Name)] contains a AutoRestart tag requesting Auto Restart"
                 }
             }
             if ($startIt){
